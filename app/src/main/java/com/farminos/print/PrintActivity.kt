@@ -1,11 +1,8 @@
 package com.farminos.print
 
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
-import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -55,6 +52,7 @@ class PrintActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfPreviewAndPrintScreen(
     uri: Uri,
@@ -69,7 +67,7 @@ fun PdfPreviewAndPrintScreen(
     var heightMm by remember { mutableStateOf("100") }
     
     var startPage by remember { mutableStateOf("1") }
-    var endPage by remember { mutableStateOf("101") } // Contoh total resi
+    var endPage by remember { mutableStateOf("101") }
     
     // State Progress Cetak
     var isPrinting by remember { mutableStateOf(false) }
@@ -120,7 +118,7 @@ fun PdfPreviewAndPrintScreen(
 
             // --- INDIKATOR ATAU NAVIGASI HALAMAN ---
             Text(
-                text = "Halaman: ${startPage} / ${endPage}",
+                text = "Halaman: $startPage / $endPage",
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -165,13 +163,13 @@ fun PdfPreviewAndPrintScreen(
                             widthMm = "80"
                             heightMm = "100"
                         },
-                        label = { Text("Standard (80x100)") }
+                        label = { Text("Standard") }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     FilterChip(
                         selected = isCustomSize,
                         onClick = { isCustomSize = true },
-                        label = { Text("Custom Size") }
+                        label = { Text("Custom") }
                     )
                 }
             }
@@ -255,7 +253,7 @@ fun PdfPreviewAndPrintScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         LinearProgressIndicator(
-                            progress = if (totalToPrint > 0) printedCount.toFloat() / totalToPrint.toFloat() else 0f,
+                            progress = { if (totalToPrint > 0) printedCount.toFloat() / totalToPrint.toFloat() else 0f },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -263,7 +261,7 @@ fun PdfPreviewAndPrintScreen(
             }
         }
 
-        // --- TOMBOL UTAMA PRINT / BATAL ---
+        // --- TOMBOL UTAMA PRINT ---
         Button(
             onClick = {
                 if (!isPrinting) {
@@ -273,10 +271,9 @@ fun PdfPreviewAndPrintScreen(
                     printedCount = 0
                     isPrinting = true
 
-                    // Simulasi Proses Cetak Berurutan
                     coroutineScope.launch {
                         for (i in 1..totalToPrint) {
-                            delay(400) // Jeda waktu per lembar cetak
+                            delay(400)
                             printedCount = i
                         }
                         isPrinting = false
