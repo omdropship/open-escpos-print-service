@@ -3,7 +3,6 @@ package com.farminos.print
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -16,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -40,7 +40,6 @@ class PrintActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     if (selectedUri != null) {
                         PdfPreviewAndPrintScreen(
-                            uri = selectedUri!!,
                             onBack = { finish() }
                         )
                     } else {
@@ -52,10 +51,8 @@ class PrintActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfPreviewAndPrintScreen(
-    uri: Uri,
     onBack: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -67,7 +64,7 @@ fun PdfPreviewAndPrintScreen(
     var heightMm by remember { mutableStateOf("100") }
     
     var startPage by remember { mutableStateOf("1") }
-    var endPage by remember { mutableStateOf("101") }
+    var endPage by remember { mutableStateOf("100") }
     
     // State Progress Cetak
     var isPrinting by remember { mutableStateOf(false) }
@@ -106,7 +103,7 @@ fun PdfPreviewAndPrintScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
+                    .height(240.dp)
                     .padding(bottom = 12.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -115,14 +112,6 @@ fun PdfPreviewAndPrintScreen(
                     Text("📄 Preview File Resi PDF", color = Color.Gray, fontSize = 16.sp)
                 }
             }
-
-            // --- INDIKATOR ATAU NAVIGASI HALAMAN ---
-            Text(
-                text = "Halaman: $startPage / $endPage",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
 
             // --- PRINT DIRECTION (ROTASI) ---
             Text("Print direction", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
@@ -141,7 +130,7 @@ fun PdfPreviewAndPrintScreen(
                             contentColor = if (printDirection == angle) Color.White else Color.Black
                         )
                     ) {
-                        Text("$angle")
+                        Text("$angle°")
                     }
                 }
             }
@@ -155,22 +144,31 @@ fun PdfPreviewAndPrintScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Ukuran Kertas", fontWeight = FontWeight.Bold)
-                Row {
-                    FilterChip(
-                        selected = !isCustomSize,
-                        onClick = { 
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
                             isCustomSize = false
                             widthMm = "80"
                             heightMm = "100"
                         },
-                        label = { Text("Standard") }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    FilterChip(
-                        selected = isCustomSize,
+                        enabled = !isPrinting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (!isCustomSize) Color(0xFF2196F3) else Color(0xFFE0E0E0),
+                            contentColor = if (!isCustomSize) Color.White else Color.Black
+                        )
+                    ) {
+                        Text("Standard")
+                    }
+                    Button(
                         onClick = { isCustomSize = true },
-                        label = { Text("Custom") }
-                    )
+                        enabled = !isPrinting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isCustomSize) Color(0xFF2196F3) else Color(0xFFE0E0E0),
+                            contentColor = if (isCustomSize) Color.White else Color.Black
+                        )
+                    ) {
+                        Text("Custom")
+                    }
                 }
             }
 
@@ -252,8 +250,10 @@ fun PdfPreviewAndPrintScreen(
                             color = Color(0xFF0D47A1)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        
+                        val progressFloat = if (totalToPrint > 0) printedCount.toFloat() / totalToPrint.toFloat() else 0f
                         LinearProgressIndicator(
-                            progress = { if (totalToPrint > 0) printedCount.toFloat() / totalToPrint.toFloat() else 0f },
+                            progress = progressFloat,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -273,7 +273,7 @@ fun PdfPreviewAndPrintScreen(
 
                     coroutineScope.launch {
                         for (i in 1..totalToPrint) {
-                            delay(400)
+                            delay(300)
                             printedCount = i
                         }
                         isPrinting = false
@@ -287,7 +287,7 @@ fun PdfPreviewAndPrintScreen(
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (isPrinting) Color.Gray else Color(0xFF2196F3)
             ),
-            shape = androidx.compose.ui.graphics.RectangleShape
+            shape = RectangleShape
         ) {
             Text(
                 text = if (isPrinting) "SEDANG MENCETAK ($printedCount/$totalToPrint)..." else "PRINT DOKUMEN",
