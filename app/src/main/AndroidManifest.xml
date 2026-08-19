@@ -24,40 +24,67 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenESCPOSPrintService"
         tools:targetApi="31">
+        
         <activity
             android:windowSoftInputMode="adjustResize"
             android:name=".PrintActivity"
             android:exported="true"
             android:theme="@style/Theme.OpenESCPOSPrintService">
+            
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
 
             <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
+                
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <data android:scheme="print-intent"  />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <!-- Menerima Gambar / Image (Bawaan Kamu) -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+            
             <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+
+            <!-- 🟢 TAMBAHAN BARU: Menerima Bagikan / Share PDF Resi -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
+            <!-- 🟢 TAMBAHAN BARU: Membuka File PDF langsung dari File Manager/Browser -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
         </activity>
+
         <service android:name=".FarminOSPrintService"
-            android:permission="android.permission.BIND_PRINT_SERVICE" android:exported="true">
+            android:permission="android.permission.BIND_PRINT_SERVICE" 
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.printservice.PrintService" />
             </intent-filter>
