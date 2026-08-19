@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -235,7 +236,8 @@ class PrintActivity : ComponentActivity() {
         )
 
         when {
-            intent.action.equals(Intent.ACTION_VIEW) -> {
+            // Menerima Intent View HTML / Web Print
+            intent.action.equals(Intent.ACTION_VIEW) && intent.hasExtra("content") -> {
                 val content: String? = intent.getStringExtra("content")
                 if (content == null) {
                     Toast
@@ -265,6 +267,23 @@ class PrintActivity : ComponentActivity() {
                 }
             }
 
+            // 🟢 TAMBAHAN BARU: Membuka File PDF langsung via ACTION_VIEW
+            intent.action.equals(Intent.ACTION_VIEW) && intent.type?.contains("pdf") == true -> {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    handleViewPdf(intent)
+                    finish()
+                }
+            }
+
+            // 🟢 TAMBAHAN BARU: Menerima Bagikan / Share File PDF
+            intent.action.equals(Intent.ACTION_SEND) && intent.type?.contains("pdf") == true -> {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    handleSendPdf(intent)
+                    finish()
+                }
+            }
+
+            // Menerima Gambar Tunggal
             intent.action.equals(Intent.ACTION_SEND) && intent.type?.startsWith("image/") == true -> {
                 lifecycleScope.launch(Dispatchers.IO) {
                     handleSendImage(intent)
@@ -272,6 +291,7 @@ class PrintActivity : ComponentActivity() {
                 }
             }
 
+            // Menerima Gambar Banyak
             intent.action.equals(Intent.ACTION_SEND_MULTIPLE) && intent.type?.startsWith("image/") == true -> {
                 lifecycleScope.launch(Dispatchers.IO) {
                     handleSendMultipleImages(intent)
@@ -279,6 +299,7 @@ class PrintActivity : ComponentActivity() {
                 }
             }
 
+            // Tampilan Utama Setting Printer (Jetpack Compose UI)
             else -> {
                 setContent {
                     Box(Modifier.safeDrawingPadding()) {
@@ -302,6 +323,58 @@ class PrintActivity : ComponentActivity() {
             runOrToast {
                 printBitmaps(it)
             }
+        }
+    }
+
+    // 🟢 TAMBAHAN BARU: Handler untuk Share PDF
+    private suspend fun handleSendPdf(intent: Intent) {
+        IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
+            runOrToast {
+                printPdf(uri)
+            }
+        }
+    }
+
+    // 🟢 TAMBAHAN BARU: Handler untuk Open PDF View
+    private suspend fun handleViewPdf(intent: Intent) {
+        intent.data?.let { uri ->
+            runOrToast {
+                printPdf(uri)
+            }
+        }
+    }
+
+    // 🟢 TAMBAHAN BARU: Fungsi konversi PDF ke Bitmap & Kirim ke Thermal Printer
+    private suspend fun printPdf(uri: Uri) {
+        val settings = settingsDataStore.data.first()
+        val uuid = settings.defaultPrinter
+        if (uuid.isEmpty()) {
+            throw Exception("Please configure a default printer.")
+        }
+        val printerSettings = settings.printersMap[uuid]
+            ?: throw Exception("Could not find printer settings.")
+
+        val instance = createDriver(this, printerSettings)
+        try {
+            contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                val renderer = PdfRenderer(pfd)
+                for (i in 0 until renderer.pageCount) {
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(
+                        page.width * 2,
+                        page.height * 2,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+
+                    val scaledBitmap = scaleBitmap(bitmap, printerSettings)
+                    instance.printBitmap(scaledBitmap)
+                }
+                renderer.close()
+            }
+        } finally {
+            instance.disconnect()
         }
     }
 
