@@ -1,7 +1,11 @@
 package com.farminos.print
 
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -11,8 +15,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,6 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,9 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.farminos.print.ui.theme.OpenESCPOSPrintServiceTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -136,8 +147,6 @@ fun MenuSelect(
                     )
                 },
             )
-            // This box is rendered on top of the TextField above and catches the clicks as we
-            // cannot have clickable TextFields that are not disabled
             Box(
                 modifier =
                     Modifier
@@ -249,7 +258,6 @@ fun PrinterCard(
                             it.setEnabled(enabled)
                         }
                         if (!enabled && uuid == defaultPrinterAddress) {
-                            // disabled printer can't be set as default
                             context.updateDefaultPrinter("")
                         }
                     },
@@ -259,7 +267,6 @@ fun PrinterCard(
                     checked = uuid == defaultPrinterAddress,
                     onCheckedChange = { isDefault ->
                         if (isDefault) {
-                            // disabled printer can't be set as default
                             context.updatePrinterSetting(uuid = uuid) {
                                 it.setEnabled(true)
                             }
@@ -280,9 +287,7 @@ fun PrinterCard(
                     LabelledTextField(
                         label = "Name",
                         value = settings.name,
-                        transform = { name ->
-                            name
-                        },
+                        transform = { name -> name },
                         onValueChange = { name ->
                             context.updatePrinterSetting(uuid = uuid) {
                                 it.setName(name)
@@ -293,9 +298,7 @@ fun PrinterCard(
                     LabelledTextField(
                         label = "Address and port",
                         value = settings.address,
-                        transform = { address ->
-                            address
-                        },
+                        transform = { address -> address },
                         onValueChange = { address ->
                             context.updatePrinterSetting(uuid = uuid) {
                                 it.setAddress(address)
@@ -329,9 +332,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "DPI",
                     value = settings.dpi.toString(),
-                    transform = { dpi ->
-                        dpi.toIntOrNull()
-                    },
+                    transform = { dpi -> dpi.toIntOrNull() },
                     onValueChange = { dpi ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setDpi(dpi)
@@ -341,9 +342,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Paper width (cm)",
                     value = settings.width.toString(),
-                    transform = { value ->
-                        value.toFloatOrNull()
-                    },
+                    transform = { value -> value.toFloatOrNull() },
                     onValueChange = { width ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setWidth(width)
@@ -353,9 +352,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Paper height (cm)",
                     value = settings.height.toString(),
-                    transform = { value ->
-                        value.toFloatOrNull()
-                    },
+                    transform = { value -> value.toFloatOrNull() },
                     onValueChange = { height ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setHeight(height)
@@ -365,9 +362,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Left margin (cm)",
                     value = settings.marginLeft.toString(),
-                    transform = { cm ->
-                        cm.toFloatOrNull()
-                    },
+                    transform = { cm -> cm.toFloatOrNull() },
                     onValueChange = { cm ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setMarginLeft(cm)
@@ -377,9 +372,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Top margin (cm)",
                     value = settings.marginTop.toString(),
-                    transform = { cm ->
-                        cm.toFloatOrNull()
-                    },
+                    transform = { cm -> cm.toFloatOrNull() },
                     onValueChange = { cm ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setMarginTop(cm)
@@ -389,9 +382,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Right margin (cm)",
                     value = settings.marginRight.toString(),
-                    transform = { cm ->
-                        cm.toFloatOrNull()
-                    },
+                    transform = { cm -> cm.toFloatOrNull() },
                     onValueChange = { cm ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setMarginRight(cm)
@@ -401,9 +392,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Bottom margin (cm)",
                     value = settings.marginBottom.toString(),
-                    transform = { cm ->
-                        cm.toFloatOrNull()
-                    },
+                    transform = { cm -> cm.toFloatOrNull() },
                     onValueChange = { cm ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setMarginBottom(cm)
@@ -413,9 +402,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Speed limit (cm/s)",
                     value = settings.speedLimit.toString(),
-                    transform = { speedLimit ->
-                        speedLimit.toFloatOrNull()
-                    },
+                    transform = { speedLimit -> speedLimit.toFloatOrNull() },
                     onValueChange = { speedLimit ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setSpeedLimit(speedLimit)
@@ -425,9 +412,7 @@ fun PrinterCard(
                 LabelledTextField(
                     label = "Cut delay (s)",
                     value = settings.cutDelay.toString(),
-                    transform = { cutDelay ->
-                        cutDelay.toFloatOrNull()
-                    },
+                    transform = { cutDelay -> cutDelay.toFloatOrNull() },
                     onValueChange = { cutDelay ->
                         context.updatePrinterSetting(uuid = uuid) {
                             it.setCutDelay(cutDelay)
@@ -472,41 +457,86 @@ fun SettingsScreen(context: PrintActivity) {
     val bluetoothAllowed by context.bluetoothAllowed.collectAsState()
     val bluetoothEnabled by context.bluetoothEnabled.collectAsState()
 
+    // File Picker Launcher untuk mengambil File PDF / Gambar
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            Toast.makeText(context, "Mencetak file...", Toast.LENGTH_SHORT).show()
+            val intent = Intent(context, PrintActivity::class.java).apply {
+                action = Intent.ACTION_VIEW
+                setDataAndType(it, context.contentResolver.getType(it) ?: "application/pdf")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(intent)
+        }
+    }
+
     OpenESCPOSPrintServiceTheme {
         Surface(
-            modifier =
-                Modifier
-                    .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Column(
                 verticalArrangement = Arrangement.Top,
-                modifier =
-                    Modifier.verticalScroll(
-                        rememberScrollState(),
-                    ),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
             ) {
+                // --- 🟢 KOTAK UTAMA PILIH FILE UNTUK PRINT ---
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF6750A4))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "🖨️ Cetak Resi / Dokumen",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Pilih file PDF atau Gambar resi dari HP untuk langsung dicetak.",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = {
+                                filePickerLauncher.launch("*/*")
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                        ) {
+                            Text(
+                                text = "📁 PILIH FILE PDF / GAMBAR",
+                                color = Color(0xFF6750A4),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Divider(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+
+                // --- DAFTAR PRINTER BLUETOOTH ---
                 Text(
                     "Bluetooth printers",
                     style = MaterialTheme.typography.headlineMedium,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
                 )
                 if (!bluetoothAllowed) {
                     Button(
-                        onClick = {
-                            context.requestBluetoothPermissions()
-                        },
+                        onClick = { context.requestBluetoothPermissions() },
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                     ) {
                         Text(text = "Request bluetooth permissions")
                     }
                 } else if (!bluetoothEnabled) {
                     Button(
-                        onClick = {
-                            context.enableBluetooth()
-                        },
+                        onClick = { context.enableBluetooth() },
                         modifier = Modifier.fillMaxWidth().padding(10.dp),
                     ) {
                         Text(text = "Enable bluetooth")
@@ -515,10 +545,7 @@ fun SettingsScreen(context: PrintActivity) {
                     Text(
                         "There are no paired Bluetooth printers, you need to pair a printer in the Bluetooth settings first.",
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
                     )
                     Button(
                         onClick = {
@@ -541,22 +568,18 @@ fun SettingsScreen(context: PrintActivity) {
                             )
                         }
                 }
+
+                // --- DAFTAR PRINTER USB ---
                 Text(
                     "USB printers",
                     style = MaterialTheme.typography.headlineMedium,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
                 )
                 if (settings.printersMap.values.none { it.`interface` == Interface.USB }) {
                     Text(
                         "There are no connected USB printers",
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
                     )
                 } else {
                     settings.printersMap
@@ -570,13 +593,12 @@ fun SettingsScreen(context: PrintActivity) {
                             )
                         }
                 }
+
+                // --- DAFTAR PRINTER NETWORK ---
                 Text(
                     "Network printers",
                     style = MaterialTheme.typography.headlineMedium,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(10.dp),
                 )
                 settings.printersMap
                     .filter { it.value.`interface` == Interface.TCP_IP }
@@ -589,9 +611,7 @@ fun SettingsScreen(context: PrintActivity) {
                         )
                     }
                 Button(
-                    onClick = {
-                        context.addPrinterSetting()
-                    },
+                    onClick = { context.addPrinterSetting() },
                     modifier = Modifier.fillMaxWidth().padding(10.dp),
                 ) {
                     Text(text = "Add a network printer")
