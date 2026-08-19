@@ -2,7 +2,7 @@
 
 This is an Android app that provides a [PrintService](https://developer.android.com/reference/android/printservice/PrintService) for label and receipt printers.
 
-It supports ESC/POS printers like the Netum G5 or MTP-II.
+It supports rESC/POS printers like the Netum G5 or MTP-II.
 It also supports Citizen printers using the CPCL protocol.
 
 You can connect printers through Bluetooth or a TCP socket.
