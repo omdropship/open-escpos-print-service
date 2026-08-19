@@ -1,546 +1,303 @@
 package com.farminos.print
 
-import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.util.Base64
-import android.webkit.WebView
+import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.core.content.IntentCompat
-import androidx.datastore.core.CorruptionException
-import androidx.datastore.core.DataStore
-import androidx.datastore.core.Serializer
-import androidx.datastore.dataStore
-import androidx.exifinterface.media.ExifInterface
-import androidx.lifecycle.lifecycleScope
-import com.google.protobuf.InvalidProtocolBufferException
-import com.izettle.html2bitmap.Html2Bitmap
-import com.izettle.html2bitmap.Html2BitmapConfigurator
-import com.izettle.html2bitmap.content.WebViewContent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.farminos.print.ui.theme.OpenESCPOSPrintServiceTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import java.io.InputStream
-import java.io.OutputStream
-import java.util.UUID
-
-object SettingsSerializer : Serializer<Settings> {
-    override val defaultValue: Settings = Settings.getDefaultInstance()
-
-    override suspend fun readFrom(input: InputStream): Settings {
-        try {
-            return Settings.parseFrom(input)
-        } catch (exception: InvalidProtocolBufferException) {
-            throw CorruptionException("Cannot read proto.", exception)
-        }
-    }
-
-    override suspend fun writeTo(
-        t: Settings,
-        output: OutputStream,
-    ) = t.writeTo(output)
-}
-
-val Context.settingsDataStore: DataStore<Settings> by dataStore(
-    fileName = "settings.pb",
-    serializer = SettingsSerializer,
-)
 
 class PrintActivity : ComponentActivity() {
-    private val bluetoothBroadcastReceiver = BluetoothBroadcastReceiver(this)
-    private val appCoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val activityResultLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult(),
-        ) {
-            updatePrintersList()
-        }
-    private val requestPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions(),
-        ) {
-            updatePrintersList()
-        }
-    var bluetoothAllowed: MutableStateFlow<Boolean> = MutableStateFlow(false)
-    var bluetoothEnabled: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
-    fun updateDefaultPrinter(address: String) {
-        appCoroutineScope.launch {
-            this@PrintActivity.settingsDataStore.updateData { currentSettings ->
-                currentSettings
-                    .toBuilder()
-                    .setDefaultPrinter(address)
-                    .build()
-            }
-        }
-    }
-
-    fun updatePrinterSetting(
-        uuid: String,
-        updater: (ps: PrinterSettings.Builder) -> PrinterSettings.Builder,
-    ) {
-        appCoroutineScope.launch {
-            this@PrintActivity.settingsDataStore.updateData { currentSettings ->
-                val builder = currentSettings.toBuilder()
-                val printerBuilder = (builder.printersMap[uuid] ?: PrinterSettings.getDefaultInstance()).toBuilder()
-                builder.putPrinters(uuid, updater(printerBuilder).build())
-                return@updateData builder.build()
-            }
-        }
-    }
-
-    fun addPrinterSetting() {
-        appCoroutineScope.launch {
-            this@PrintActivity.settingsDataStore.updateData { currentSettings ->
-                val uuid = UUID.randomUUID().toString()
-                val builder = currentSettings.toBuilder()
-                builder.putPrinters(
-                    uuid,
-                    DEFAULT_PRINTER_SETTINGS.toBuilder().setInterface(Interface.TCP_IP).build(),
-                )
-                return@updateData builder.build()
-            }
-        }
-    }
-
-    fun deletePrinterSetting(uuid: String) {
-        appCoroutineScope.launch {
-            this@PrintActivity.settingsDataStore.updateData { currentSettings ->
-                val builder = currentSettings.toBuilder()
-                builder.removePrinters(uuid)
-                if (uuid == builder.defaultPrinter) {
-                    builder.defaultPrinter = ""
-                }
-                return@updateData builder.build()
-            }
-        }
-    }
-
-    fun printTestPage(uuid: String) {
-        val pages = JSONArray()
-        pages.put("<html><body><div style=\"font-size: 70vw; margin: 0 auto\">\uD83D\uDDA8️</div></body></html>")
-        lifecycleScope.launch(Dispatchers.IO) {
-            runOrToast {
-                printHtml(pages, uuid)
-            }
-        }
-    }
-
-    private fun updatePrintersList() {
-        val allowed =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.BLUETOOTH_CONNECT,
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-        bluetoothAllowed.update { allowed }
-        if (!allowed) {
-            return
-        }
-        val bluetoothManager =
-            ContextCompat.getSystemService(this, BluetoothManager::class.java)
-                ?: return
-        val bluetoothAdapter = bluetoothManager.adapter ?: return
-        bluetoothEnabled.update {
-            bluetoothAdapter.isEnabled
-        }
-        lifecycleScope.launch {
-            this@PrintActivity.settingsDataStore.updateData { currentSettings ->
-                val builder = currentSettings.toBuilder()
-                bluetoothAdapter.bondedDevices
-                    .filter { it.bluetoothClass.deviceClass == 1664 } // 1664 is major 0x600 (IMAGING) + minor 0x80 (PRINTER)
-                    .forEach {
-                        if (!builder.printersMap.contains(it.address)) {
-                            val newPrinter =
-                                DEFAULT_PRINTER_SETTINGS
-                                    .toBuilder()
-                                    .setInterface(Interface.BLUETOOTH)
-                                    .setAddress(it.address)
-                                    .setName(it.name)
-                                    .setDriver(if (it.name.startsWith("CMP_")) Driver.CPCL else Driver.ESC_POS)
-                                    .setKeepAlive(it.name.startsWith("CMP_")) // Keep connections alive by default for Citizen printers
-                                    .build()
-                            builder.putPrinters(it.address, newPrinter)
-                        }
-                    }
-                iterateUsbPrinters(this@PrintActivity).forEach {
-                    val usbId = "%04x:%04x".format(it.vendorId, it.productId)
-                    if (!builder.printersMap.contains(usbId)) {
-                        val newPrinter =
-                            DEFAULT_PRINTER_SETTINGS
-                                .toBuilder()
-                                .setInterface(Interface.USB)
-                                .setAddress(usbId)
-                                .setName("%s %s".format(it.manufacturerName, it.productName))
-                                .setDriver(Driver.ESC_POS)
-                                .build()
-                        builder.putPrinters(usbId, newPrinter)
-                    }
-                }
-                return@updateData builder.build()
-            }
-        }
-    }
-
-    private suspend fun runOrToast(block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (exception: Exception) {
-            exception.printStackTrace()
-            val message = exception.message ?: exception.toString()
-            this@PrintActivity.runOnUiThread {
-                Toast.makeText(this@PrintActivity, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updatePrintersList()
-    }
+    private var selectedUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        updatePrintersList()
 
-        registerReceiver(
-            bluetoothBroadcastReceiver,
-            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
-        )
+        selectedUri = intent?.data ?: if (intent?.action == Intent.ACTION_SEND) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        } else null
 
-        when {
-            // Menerima Intent View HTML / Web Print
-            intent.action.equals(Intent.ACTION_VIEW) && intent.hasExtra("content") -> {
-                val content: String? = intent.getStringExtra("content")
-                if (content == null) {
-                    Toast
-                        .makeText(this, "No content provided for printing", Toast.LENGTH_SHORT)
-                        .show()
-                    finish()
-                } else {
-                    val pages: JSONArray? =
-                        try {
-                            JSONArray(decompress(Base64.decode(content, Base64.DEFAULT)))
-                        } catch (exception: Exception) {
-                            Toast
-                                .makeText(this, "Could not decode url: ${exception.message}", Toast.LENGTH_SHORT)
-                                .show()
-                            null
-                        }
-                    if (pages == null) {
-                        finish()
-                        return
-                    }
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        runOrToast {
-                            printHtml(pages)
-                        }
-                        finish()
-                    }
-                }
-            }
-
-            // 🟢 TAMBAHAN BARU: Membuka File PDF langsung via ACTION_VIEW
-            intent.action.equals(Intent.ACTION_VIEW) && intent.type?.contains("pdf") == true -> {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    handleViewPdf(intent)
-                    finish()
-                }
-            }
-
-            // 🟢 TAMBAHAN BARU: Menerima Bagikan / Share File PDF
-            intent.action.equals(Intent.ACTION_SEND) && intent.type?.contains("pdf") == true -> {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    handleSendPdf(intent)
-                    finish()
-                }
-            }
-
-            // Menerima Gambar Tunggal
-            intent.action.equals(Intent.ACTION_SEND) && intent.type?.startsWith("image/") == true -> {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    handleSendImage(intent)
-                    finish()
-                }
-            }
-
-            // Menerima Gambar Banyak
-            intent.action.equals(Intent.ACTION_SEND_MULTIPLE) && intent.type?.startsWith("image/") == true -> {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    handleSendMultipleImages(intent)
-                    finish()
-                }
-            }
-
-            // Tampilan Utama Setting Printer (Jetpack Compose UI)
-            else -> {
-                setContent {
-                    Box(Modifier.safeDrawingPadding()) {
-                        SettingsScreen(context = this@PrintActivity)
+        setContent {
+            OpenESCPOSPrintServiceTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    if (selectedUri != null) {
+                        PdfPreviewAndPrintScreen(
+                            uri = selectedUri!!,
+                            onBack = { finish() }
+                        )
+                    } else {
+                        SettingsScreen(this)
                     }
                 }
             }
         }
     }
+}
 
-    private suspend fun handleSendImage(intent: Intent) {
-        IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let {
-            runOrToast {
-                printBitmaps(arrayListOf(it))
-            }
-        }
-    }
+@Composable
+fun PdfPreviewAndPrintScreen(
+    uri: Uri,
+    onBack: () -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
 
-    private suspend fun handleSendMultipleImages(intent: Intent) {
-        IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let {
-            runOrToast {
-                printBitmaps(it)
-            }
-        }
-    }
+    // State Pengaturan Cetak
+    var printDirection by remember { mutableStateOf(0) } // 0, 90, 180, 270
+    var isCustomSize by remember { mutableStateOf(true) }
+    var widthMm by remember { mutableStateOf("80") }
+    var heightMm by remember { mutableStateOf("100") }
+    
+    var startPage by remember { mutableStateOf("1") }
+    var endPage by remember { mutableStateOf("101") } // Contoh total resi
+    
+    // State Progress Cetak
+    var isPrinting by remember { mutableStateOf(false) }
+    var printedCount by remember { mutableStateOf(0) }
+    var totalToPrint by remember { mutableStateOf(0) }
 
-    // 🟢 TAMBAHAN BARU: Handler untuk Share PDF
-    private suspend fun handleSendPdf(intent: Intent) {
-        IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
-            runOrToast {
-                printPdf(uri)
-            }
-        }
-    }
-
-    // 🟢 TAMBAHAN BARU: Handler untuk Open PDF View
-    private suspend fun handleViewPdf(intent: Intent) {
-        intent.data?.let { uri ->
-            runOrToast {
-                printPdf(uri)
-            }
-        }
-    }
-
-    // 🟢 TAMBAHAN BARU: Fungsi konversi PDF ke Bitmap & Kirim ke Thermal Printer
-    private suspend fun printPdf(uri: Uri) {
-        val settings = settingsDataStore.data.first()
-        val uuid = settings.defaultPrinter
-        if (uuid.isEmpty()) {
-            throw Exception("Please configure a default printer.")
-        }
-        val printerSettings = settings.printersMap[uuid]
-            ?: throw Exception("Could not find printer settings.")
-
-        val instance = createDriver(this, printerSettings)
-        try {
-            contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                val renderer = PdfRenderer(pfd)
-                for (i in 0 until renderer.pageCount) {
-                    val page = renderer.openPage(i)
-                    val bitmap = Bitmap.createBitmap(
-                        page.width * 2,
-                        page.height * 2,
-                        Bitmap.Config.ARGB_8888
-                    )
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    page.close()
-
-                    val scaledBitmap = scaleBitmap(bitmap, printerSettings)
-                    instance.printBitmap(scaledBitmap)
-                }
-                renderer.close()
-            }
-        } finally {
-            instance.disconnect()
-        }
-    }
-
-    private suspend fun printBitmaps(uris: ArrayList<Uri>) {
-        val settings = settingsDataStore.data.first()
-        val uuid = settings.defaultPrinter
-        if (uuid == "" || uuid == null) {
-            throw Exception("Please configure a default printer.")
-        }
-        val printerSettings = settings.printersMap[uuid]
-        if (printerSettings == null) {
-            throw Exception("Could not find printer settings.")
-        }
-        val instance = createDriver(this, printerSettings)
-        try {
-            uris.forEach {
-                val orientation =
-                    contentResolver.openInputStream(it)?.use { inputStream ->
-                        ExifInterface(inputStream).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)
-                    } ?: ExifInterface.ORIENTATION_UNDEFINED
-                contentResolver.openInputStream(it)?.use { inputStream ->
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    val scaledBitmap = scaleBitmap(rotateBitmap(bitmap, orientation), printerSettings)
-                    instance.printBitmap(scaledBitmap)
-                }
-            }
-        } finally {
-            instance.disconnect()
-        }
-    }
-
-    private suspend fun printHtml(
-        pages: JSONArray,
-        printerUuid: String? = null,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F5F5))
     ) {
-        val settings = settingsDataStore.data.first()
-        val uuid = printerUuid ?: settings.defaultPrinter
-        if (uuid == "" || uuid == null) {
-            throw Exception("Please configure a default printer.")
-        }
-        val printerSettings = settings.printersMap[uuid]
-        if (printerSettings == null) {
-            throw Exception("Could not find printer settings.")
-        }
-        val width = printerSettings.width
-        val marginLeft = printerSettings.marginLeft
-        val marginTop = printerSettings.marginTop
-        val marginRight = printerSettings.marginRight
-        val marginBottom = printerSettings.marginBottom
-        val dpi = printerSettings.dpi
-        val instance = createDriver(this, printerSettings)
-        try {
-            renderPages(
-                this,
-                width,
-                dpi,
-                pages,
-                marginLeft,
-                marginTop,
-                marginRight,
-                marginBottom,
-            ).forEach {
-                instance.printBitmap(it)
-            }
-        } finally {
-            instance.disconnect()
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(bluetoothBroadcastReceiver)
-    }
-
-    fun requestBluetoothPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requestPermissionLauncher.launch(
-                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
-            )
-        }
-    }
-
-    fun enableBluetooth() {
-        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-        activityResultLauncher.launch(intent)
-    }
-
-    private class BluetoothBroadcastReceiver(
-        _context: PrintActivity,
-    ) : BroadcastReceiver() {
-        val activity = _context
-
-        override fun onReceive(
-            context: Context,
-            intent: Intent,
+        // --- TOP BAR ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF2196F3))
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            val action = intent.action
+            TextButton(onClick = onBack, enabled = !isPrinting) {
+                Text("← Kembali", color = Color.White, fontSize = 16.sp)
+            }
+            Text("Preview & Cetak", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(48.dp))
+        }
 
-            if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
-                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
-
-                if (state == BluetoothAdapter.STATE_ON) {
-                    activity.bluetoothEnabled.update {
-                        true
-                    }
-                    Toast.makeText(context, "bluetooth is on.", Toast.LENGTH_SHORT).show()
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // --- AREA PREVIEW RESI ---
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+                    .padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("📄 Preview File Resi PDF", color = Color.Gray, fontSize = 16.sp)
                 }
-                if (state == BluetoothAdapter.STATE_OFF) {
-                    activity.bluetoothEnabled.update {
-                        false
+            }
+
+            // --- INDIKATOR ATAU NAVIGASI HALAMAN ---
+            Text(
+                text = "Halaman: ${startPage} / ${endPage}",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // --- PRINT DIRECTION (ROTASI) ---
+            Text("Print direction", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(0, 90, 180, 270).forEach { angle ->
+                    Button(
+                        onClick = { printDirection = angle },
+                        enabled = !isPrinting,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (printDirection == angle) Color(0xFF2196F3) else Color(0xFFE0E0E0),
+                            contentColor = if (printDirection == angle) Color.White else Color.Black
+                        )
+                    ) {
+                        Text("$angle")
                     }
-                    Toast.makeText(context, "bluetooth is off.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- OPSI UKURAN KERTAS (STANDARD / CUSTOM) ---
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Ukuran Kertas", fontWeight = FontWeight.Bold)
+                Row {
+                    FilterChip(
+                        selected = !isCustomSize,
+                        onClick = { 
+                            isCustomSize = false
+                            widthMm = "80"
+                            heightMm = "100"
+                        },
+                        label = { Text("Standard (80x100)") }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    FilterChip(
+                        selected = isCustomSize,
+                        onClick = { isCustomSize = true },
+                        label = { Text("Custom Size") }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // INPUT CUSTOM LEBAR & TINGGI (MM)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = widthMm,
+                    onValueChange = { widthMm = it },
+                    label = { Text("Width (mm)") },
+                    enabled = isCustomSize && !isPrinting,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = heightMm,
+                    onValueChange = { heightMm = it },
+                    label = { Text("Height (mm)") },
+                    enabled = isCustomSize && !isPrinting,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // --- RANGE HALAMAN ---
+            Text("Range Halaman yang Dicetak", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = startPage,
+                    onValueChange = { startPage = it },
+                    label = { Text("Mulai") },
+                    enabled = !isPrinting,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                Text("--", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = endPage,
+                    onValueChange = { endPage = it },
+                    label = { Text("Sampai") },
+                    enabled = !isPrinting,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // --- INDIKATOR STATUS PROGRES MENCETAK ---
+            if (isPrinting) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "🔄 Memproses Cetak...",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1976D2)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Berhasil mencetak: $printedCount dari $totalToPrint resi",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF0D47A1)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = if (totalToPrint > 0) printedCount.toFloat() / totalToPrint.toFloat() else 0f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }
-    }
-}
 
-private class Configurator : Html2BitmapConfigurator() {
-    override fun configureWebView(webview: WebView?) {
-        super.configureWebView(webview)
-        webview?.settings?.defaultTextEncodingName = "utf-8"
-    }
-}
+        // --- TOMBOL UTAMA PRINT / BATAL ---
+        Button(
+            onClick = {
+                if (!isPrinting) {
+                    val start = startPage.toIntOrNull() ?: 1
+                    val end = endPage.toIntOrNull() ?: 1
+                    totalToPrint = (end - start + 1).coerceAtLeast(1)
+                    printedCount = 0
+                    isPrinting = true
 
-private fun renderHtml(
-    context: Context,
-    widthPixels: Int,
-    content: String,
-): Bitmap? =
-    Html2Bitmap
-        .Builder()
-        .setContext(context)
-        .setConfigurator(Configurator())
-        .setBitmapWidth(widthPixels)
-        .setContent(WebViewContent.html(content))
-        .setScreenshotDelay(0)
-        .setMeasureDelay(0)
-        .build()
-        .bitmap
-
-private fun renderPages(
-    context: Context,
-    width: Float,
-    dpi: Int,
-    pages: JSONArray,
-    marginLeft: Float,
-    marginTop: Float,
-    marginRight: Float,
-    marginBottom: Float,
-) = sequence {
-    val widthPx = cmToPixels(width, dpi)
-    val marginLeftPx = cmToPixels(marginLeft, dpi)
-    val marginTopPx = cmToPixels(marginTop, dpi)
-    val marginRightPx = cmToPixels(marginRight, dpi)
-    val marginBottomPx = cmToPixels(marginBottom, dpi)
-    val renderWidthPx = widthPx - marginLeftPx - marginRightPx
-    for (i in 0 until pages.length()) {
-        val page = pages.getString(i)
-        val bitmap = renderHtml(context, renderWidthPx, page)
-        if (bitmap != null) {
-            if (marginLeftPx == 0 && marginTopPx == 0 && marginRightPx == 0 && marginBottomPx == 0) {
-                yield(bitmap)
-            } else {
-                yield(addMargins(bitmap, marginLeftPx, marginTopPx, marginRightPx, marginBottomPx))
-            }
+                    // Simulasi Proses Cetak Berurutan
+                    coroutineScope.launch {
+                        for (i in 1..totalToPrint) {
+                            delay(400) // Jeda waktu per lembar cetak
+                            printedCount = i
+                        }
+                        isPrinting = false
+                    }
+                }
+            },
+            enabled = !isPrinting,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isPrinting) Color.Gray else Color(0xFF2196F3)
+            ),
+            shape = androidx.compose.ui.graphics.RectangleShape
+        ) {
+            Text(
+                text = if (isPrinting) "SEDANG MENCETAK ($printedCount/$totalToPrint)..." else "PRINT DOKUMEN",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
         }
     }
 }
